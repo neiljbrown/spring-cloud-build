@@ -4,6 +4,9 @@
 
 set -e
 
+export GIT_BIN ROOT_FOLDER COMMIT_CHANGES MAVEN_PATH MAVEN_EXEC REPO_NAME SPRING_CLOUD_STATIC_REPO
+export CURRENT_BRANCH PREVIOUS_BRANCH
+
 GIT_BIN="${GIT_BIN:-git}"
 
 # Set default props like MAVEN_PATH, ROOT_FOLDER etc.
@@ -36,6 +39,7 @@ function set_default_props() {
 
 # Adds the oauth token if present to the remote url
 function add_oauth_token_to_remote_url() {
+    local remote
     remote="$( "${GIT_BIN}" config remote.origin.url | sed -e 's/^git:/https:/' )"
     echo "Current remote [${remote}]"
     if [[ "${RELEASER_GIT_OAUTH_TOKEN}" != "" && ${remote} != *"@"* ]]; then
@@ -75,6 +79,7 @@ function retrieve_current_branch() {
     echo "Current branch is [${CURRENT_BRANCH}]"
     "${GIT_BIN}" checkout "${CURRENT_BRANCH}" || echo "Failed to check the branch... continuing with the script"
     PREVIOUS_BRANCH="${CURRENT_BRANCH}"
+    echo "Previous branch was [${PREVIOUS_BRANCH}]"
 }
 
 # Switches to the provided value of the release version. We always prefix it with `v`
@@ -195,8 +200,10 @@ function copy_docs_for_current_version() {
             for f in docs/target/generated-docs/*; do
                 file="${f#docs/target/generated-docs/*}"
                 if ! "${GIT_BIN}" ls-files -i -o --exclude-standard --directory | grep -q ^"${file}"$; then
+                    echo "The file [${file}] shouldn't be ignored"
                     # Not ignored...
                     # We want users to access 1.0.0.RELEASE/ instead of 1.0.0.RELEASE/spring-cloud.sleuth.html
+                    echo "File [${file}] equals [${MAIN_ADOC_VALUE}.html] ?"
                     if [[ "${file}" == "${MAIN_ADOC_VALUE}.html" ]] ; then
                         # We don't want to copy the spring-cloud-sleuth.html
                         # we want it to be converted to index.html
@@ -329,53 +336,58 @@ EOF
 #
 # ==========================================
 
-while [[ $# -gt 0 ]]
-do
-key="$1"
-case "${key}" in
-    -v|--version)
-    VERSION="$2"
-    shift # past argument
-    ;;
-    -r|--releasetrain)
-    RELEASE_TRAIN="yes"
-    ;;
-    -d|--destination)
-    DESTINATION="$2"
-    shift # past argument
-    ;;
-    -b|--build)
-    BUILD="yes"
-    ;;
-    -c|--clone)
-    CLONE="yes"
-    ;;
-    -h|--help)
-    print_usage
-    exit 0
-    ;;
-    *)
-    echo "Invalid option: [$1]"
-    print_usage
-    exit 1
-    ;;
-esac
-shift # past argument or value
-done
 
-assert_properties
-set_default_props
-check_if_anything_to_sync
-retrieve_current_branch
-if echo "${VERSION}" | grep -q -E 'SNAPSHOT' || [[ -z "${VERSION}" ]]; then
-    CLONE=""
-    VERSION=""
-    echo "You've provided a version variable but it's a snapshot one. Due to this will not clone spring-cloud-static and publish docs over there"
+if [[ "${SOURCE_FUNCTIONS}" == "true" ]]; then
+    echo "Will just source functions. Will not run any commands"
 else
-    switch_to_tag
+    while [[ $# -gt 0 ]]
+    do
+    key="$1"
+    case "${key}" in
+        -v|--version)
+        VERSION="$2"
+        shift # past argument
+        ;;
+        -r|--releasetrain)
+        RELEASE_TRAIN="yes"
+        ;;
+        -d|--destination)
+        DESTINATION="$2"
+        shift # past argument
+        ;;
+        -b|--build)
+        BUILD="yes"
+        ;;
+        -c|--clone)
+        CLONE="yes"
+        ;;
+        -h|--help)
+        print_usage
+        exit 0
+        ;;
+        *)
+        echo "Invalid option: [$1]"
+        print_usage
+        exit 1
+        ;;
+    esac
+    shift # past argument or value
+    done
+
+    assert_properties
+    set_default_props
+    check_if_anything_to_sync
+    retrieve_current_branch
+    if echo "${VERSION}" | grep -q -E 'SNAPSHOT' || [[ -z "${VERSION}" ]]; then
+        CLONE=""
+        VERSION=""
+        echo "You've provided a version variable but it's a snapshot one. Due to this will not clone spring-cloud-static and publish docs over there"
+    else
+        switch_to_tag
+    fi
+    build_docs_if_applicable
+    retrieve_doc_properties
+    stash_changes
+    add_docs_from_target
+    checkout_previous_branch
 fi
-build_docs_if_applicable
-retrieve_doc_properties
-stash_changes
-add_docs_from_target
-checkout_previous_branch
