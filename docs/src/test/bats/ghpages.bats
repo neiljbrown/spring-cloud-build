@@ -44,6 +44,14 @@ function printing_git {
 	echo "git $*"
 }
 
+function printing_git_failing_with_diff_index {
+	if [[ "$*" == *"diff-index"* ]]; then
+		return 1
+	else 
+		echo "git $*"
+	fi
+}
+
 export -f fake_git
 export -f git_with_remotes
 export -f printing_git
@@ -139,4 +147,125 @@ export -f printing_git
 
 	assert_success
 	assert_output --partial "git checkout v1.0.0"
+}
+
+@test "should not build docs when build option is disabled" {
+	export BUILD="no"
+
+	cd "${TEMP_DIR}/spring-cloud-stream/"
+	echo -e '#!/bin/sh\necho $*' > mvnw
+	source "${SOURCE_DIR}"/ghpages.sh
+
+	run build_docs_if_applicable
+
+	assert_success
+	refute_output --partial "clean install"
+}
+
+@test "should build docs when build option is enabled" {
+	export BUILD="yes"
+
+	cd "${TEMP_DIR}/spring-cloud-stream/"
+	echo -e '#!/bin/sh\necho $*' > mvnw
+
+	source "${SOURCE_DIR}"/ghpages.sh
+
+	run build_docs_if_applicable
+
+	assert_success
+	assert_output --partial "clean install"
+}
+
+@test "should retrieve maven properties for docs" {
+	export WHITELIST_PROPERTY="spring-doc-resources.version"
+	export MAVEN_EXEC="./mvnw"
+
+	cd "${TEMP_DIR}/spring-cloud-stream/"
+
+	source "${SOURCE_DIR}"/ghpages.sh
+
+	retrieve_doc_properties
+
+	assert_success
+	assert [ "${MAIN_ADOC_VALUE}" == "home" ]
+	assert [ "${WHITELISTED_BRANCHES_VALUE}" == "0.1.1.RELEASE" ]
+}
+
+@test "should stash changes if dirty" {
+	export GIT_BIN="printing_git_failing_with_diff_index"
+	cd "${TEMP_DIR}/spring-cloud-stream/"
+
+	source "${SOURCE_DIR}"/ghpages.sh
+
+	run stash_changes
+
+	assert_success
+	assert_output --partial "git stash"
+}
+
+@test "should not stash changes if repo is not dirty" {
+	export GIT_BIN="printing_git"
+	cd "${TEMP_DIR}/spring-cloud-static/"
+
+	source "${SOURCE_DIR}"/ghpages.sh
+
+	run stash_changes
+
+	assert_success
+	refute_output --partial "git stash"
+}
+
+@test "should add and commit all non ignored files for master branch" {
+	export GIT_BIN="printing_git"
+	export CURRENT_BRANCH="master"
+	cd "${TEMP_DIR}/spring-cloud-stream/"
+	export ROOT_FOLDER="$( pwd )"
+	mkdir -p docs/target/generated-docs/
+	touch docs/target/generated-docs/${MAIN_ADOC_VALUE}.html
+	touch docs/target/generated-docs/foo.html
+
+	source "${SOURCE_DIR}"/ghpages.sh
+
+	copy_docs_for_current_version
+
+	assert_success
+	assert [ "${COMMIT_CHANGES}" == "yes" ]
+}
+
+@test "should add and commit all non ignored files for a custom branch and convert root file to index.html" {
+	export GIT_BIN="printing_git"
+	export CURRENT_BRANCH="present"
+	export WHITELISTED_BRANCHES_VALUE="present"
+	export MAIN_ADOC_VALUE="my_doc"
+	cd "${TEMP_DIR}/spring-cloud-stream/"
+	export ROOT_FOLDER="$( pwd )"
+	mkdir -p docs/target/generated-docs/
+	touch docs/target/generated-docs/${MAIN_ADOC_VALUE}.html
+	touch docs/target/generated-docs/foo.html
+
+	source "${SOURCE_DIR}"/ghpages.sh
+
+	copy_docs_for_current_version
+
+	assert_success
+	assert [ "${COMMIT_CHANGES}" == "yes" ]
+
+	run copy_docs_for_current_version
+
+	assert_success
+	assert_output --partial "add -A ${ROOT_FOLDER}/present/index.html"
+	assert_output --partial "add -A ${ROOT_FOLDER}/present/foo.html"
+}
+
+@test "should do nothing if current branch is not whitelisted" {
+	export CURRENT_BRANCH="custom"
+	export WHITELISTED_BRANCHES_VALUE="non_present"
+	cd "${TEMP_DIR}/spring-cloud-stream/"
+
+	source "${SOURCE_DIR}"/ghpages.sh
+
+	copy_docs_for_current_version
+
+	assert_success
+	assert [ "${COMMIT_CHANGES}" != "yes" ]
 }

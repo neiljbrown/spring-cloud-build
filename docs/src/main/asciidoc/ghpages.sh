@@ -126,6 +126,7 @@ function stash_changes() {
     if [[ "${success}" == "false" ]]; then
         echo "Failed to check if the current repo is dirty. Assuming that it is." && dirty="1"
     fi
+    echo "The repo is dirty [${dirty}]"
     if [ "$dirty" != "0" ]; then "${GIT_BIN}" stash; fi
 }
 
@@ -203,7 +204,6 @@ function copy_docs_for_current_version() {
                     echo "The file [${file}] shouldn't be ignored"
                     # Not ignored...
                     # We want users to access 1.0.0.RELEASE/ instead of 1.0.0.RELEASE/spring-cloud.sleuth.html
-                    echo "File [${file}] equals [${MAIN_ADOC_VALUE}.html] ?"
                     if [[ "${file}" == "${MAIN_ADOC_VALUE}.html" ]] ; then
                         # We don't want to copy the spring-cloud-sleuth.html
                         # we want it to be converted to index.html
